@@ -63,14 +63,22 @@ struct Config {
     flag_field: String,
 
     /// Extractor toggles
-    #[serde(default = "default_true")] extract_domains: bool,
-    #[serde(default = "default_true")] extract_emails: bool,
-    #[serde(default = "default_true")] extract_ipv4: bool,
-    #[serde(default = "default_true")] extract_ipv6: bool,
-    #[serde(default = "default_true")] extract_hashes: bool,
-    #[serde(default = "default_true")] extract_bitcoin: bool,
-    #[serde(default = "default_true")] extract_ethereum: bool,
-    #[serde(default = "default_true")] extract_monero: bool,
+    #[serde(default = "default_true")]
+    extract_domains: bool,
+    #[serde(default = "default_true")]
+    extract_emails: bool,
+    #[serde(default = "default_true")]
+    extract_ipv4: bool,
+    #[serde(default = "default_true")]
+    extract_ipv6: bool,
+    #[serde(default = "default_true")]
+    extract_hashes: bool,
+    #[serde(default = "default_true")]
+    extract_bitcoin: bool,
+    #[serde(default = "default_true")]
+    extract_ethereum: bool,
+    #[serde(default = "default_true")]
+    extract_monero: bool,
 }
 
 fn default_output_field() -> String {
@@ -79,7 +87,9 @@ fn default_output_field() -> String {
 fn default_flag_field() -> String {
     "threat_detected".to_string()
 }
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 /// Filter state
 struct FilterState {
@@ -122,7 +132,8 @@ impl FilterState {
             .extract_bitcoin(config.extract_bitcoin)
             .extract_ethereum(config.extract_ethereum)
             .extract_monero(config.extract_monero)
-            .build() {
+            .build()
+        {
             Ok(e) => e,
             Err(e) => {
                 eprintln!("[matchy] ERROR: Failed to create extractor: {}", e);
@@ -136,10 +147,7 @@ impl FilterState {
                 let size_mb = bytes.len() as f64 / (1024.0 * 1024.0);
                 match Database::from_bytes(bytes) {
                     Ok(db) => {
-                        eprintln!(
-                            "[matchy] Loaded {} ({:.1} MB)",
-                            config.database, size_mb
-                        );
+                        eprintln!("[matchy] Loaded {} ({:.1} MB)", config.database, size_mb);
                         self.database = Some(db);
                         self.extractor = Some(extractor);
                         self.config = Some(config);
@@ -159,7 +167,7 @@ impl FilterState {
 /// Load YAML config from matchy.yaml
 fn load_config() -> Option<Config> {
     let contents = std::fs::read_to_string(CONFIG_FILE).ok()?;
-    match serde_yaml::from_str(&contents) {
+    match serde_yml::from_str(&contents) {
         Ok(config) => Some(config),
         Err(e) => {
             eprintln!("[matchy] ERROR: Failed to parse {}: {}", CONFIG_FILE, e);
@@ -170,29 +178,30 @@ fn load_config() -> Option<Config> {
 
 thread_local! {
     static STATE: RefCell<FilterState> = RefCell::new(FilterState::new());
+    static RESULT_BUFFER: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
 }
-
-/// Result buffer for WASM FFI
-static mut RESULT_BUFFER: Vec<u8> = Vec::new();
 
 /// Helper to return record unchanged (pass-through)
 #[inline]
 fn pass_through(record_slice: &[u8]) -> *const u8 {
-    unsafe {
-        RESULT_BUFFER = record_slice.to_vec();
-        RESULT_BUFFER.push(0);
-        RESULT_BUFFER.as_ptr()
-    }
+    RESULT_BUFFER.with(|buf| {
+        let mut buf = buf.borrow_mut();
+        buf.clear();
+        buf.extend_from_slice(record_slice);
+        buf.push(0);
+        buf.as_ptr()
+    })
 }
 
 /// Main filter function called by Fluent Bit
-/// 
+///
 /// Behavior:
 /// - Always passes through all records (never drops)
 /// - Scans entire record for IoCs using the extractor
 /// - On match: adds threat_detected=true and matchy_threats=[...] fields
 /// - On no match: record passes through unchanged
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn matchy_filter(
     _tag: *const u8,
     _tag_len: u32,
@@ -269,13 +278,13 @@ pub extern "C" fn matchy_filter(
 
         // Return enriched record
         match serde_json::to_vec(&record_json) {
-            Ok(output) => {
-                unsafe {
-                    RESULT_BUFFER = output;
-                    RESULT_BUFFER.push(0);
-                    RESULT_BUFFER.as_ptr()
-                }
-            }
+            Ok(output) => RESULT_BUFFER.with(|buf| {
+                let mut buf = buf.borrow_mut();
+                buf.clear();
+                buf.extend_from_slice(&output);
+                buf.push(0);
+                buf.as_ptr()
+            }),
             // Serialization failed -> pass through unchanged
             Err(_) => pass_through(record_slice),
         }
