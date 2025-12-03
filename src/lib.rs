@@ -193,7 +193,7 @@ fn pass_through(record_slice: &[u8]) -> *const u8 {
 /// - On match: adds threat_detected=true and matchy_threats=[...] fields
 /// - On no match: record passes through unchanged
 #[no_mangle]
-pub extern "C" fn filter(
+pub extern "C" fn matchy_filter(
     _tag: *const u8,
     _tag_len: u32,
     _time_sec: u32,
