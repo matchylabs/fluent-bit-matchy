@@ -2,7 +2,7 @@
 # Place this file in the same directory as fluent-bit.yaml
 
 # Path to your Matchy database (.mxy)
-database: /etc/fluent-bit/threats.mxy
+database: threats.mxy
 
 # Output field names (optional)
 output_field: matchy_threats     # array of match details

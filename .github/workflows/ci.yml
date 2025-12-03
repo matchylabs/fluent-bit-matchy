@@ -48,16 +48,17 @@ jobs:
       - name: Create release tarball
         run: |
           mkdir -p fluent-bit-matchy-${{ steps.version.outputs.VERSION }}
-          cp fluent_bit_matchy.wasm fluent-bit-matchy-${{ steps.version.outputs.VERSION }}/
+          cp fluent_bit_matchy.wasm fluent-bit-matchy-${{ steps.version.outputs.VERSION }}/fluent_bit_matchy-${{ steps.version.outputs.VERSION }}.wasm
           cp README.md fluent-bit-matchy-${{ steps.version.outputs.VERSION }}/
           cp examples/matchy.yaml fluent-bit-matchy-${{ steps.version.outputs.VERSION }}/matchy.yaml.example
           cp examples/fluent-bit.yaml fluent-bit-matchy-${{ steps.version.outputs.VERSION }}/fluent-bit.yaml.example
           tar -czvf fluent-bit-matchy-${{ steps.version.outputs.VERSION }}.tar.gz fluent-bit-matchy-${{ steps.version.outputs.VERSION }}
+          mv fluent_bit_matchy.wasm fluent_bit_matchy-${{ steps.version.outputs.VERSION }}.wasm
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             fluent-bit-matchy-${{ steps.version.outputs.VERSION }}.tar.gz
-            fluent_bit_matchy.wasm
+            fluent_bit_matchy-${{ steps.version.outputs.VERSION }}.wasm
           generate_release_notes: true

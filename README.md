@@ -1,42 +1,46 @@
 # Fluent Bit Matchy Filter Plugin
 
-Real-time threat intelligence enrichment for Fluent Bit log streams using [matchy](https://github.com/matchylabs/matchy).
+A WASM filter plugin that enriches Fluent Bit log streams with threat intelligence from [matchy](https://github.com/matchylabs/matchy) databases.
 
-## Features
-
-- Scans entire log records for IoCs (IPs, domains, hashes, etc.)
-- Sub-millisecond lookups against matchy threat databases
-- Enriches records with threat data — never drops logs
-- Simple YAML configuration
+- Scans log records for IPs, domains, URLs, and file hashes
+- Sub-millisecond lookups against `.mxy` threat databases
+- Enriches matching records — never drops logs
 
 ## Installation
 
-### Build from source
+Download the [latest release](https://github.com/matchylabs/fluent-bit-matchy/releases) and extract it:
 
 ```bash
-# Install WASM target
-rustup target add wasm32-wasip1
-
-# Build
-cargo build --target wasm32-wasip1 --release
-
-# Output: target/wasm32-wasip1/release/fluent_bit_matchy.wasm
+tar -xzf fluent-bit-matchy-v*.tar.gz
 ```
 
-## Configuration
+You'll get:
+- `fluent_bit_matchy-VERSION.wasm` — the plugin
+- `matchy.yaml.example` — plugin configuration template  
+- `fluent-bit.yaml.example` — Fluent Bit configuration template
 
-### 1. Create `matchy.yaml`
+## Setup
 
-Place in the same directory as your Fluent Bit config:
+Copy the files to your Fluent Bit directory:
+
+```
+/etc/fluent-bit/
+├── fluent-bit.yaml
+├── fluent_bit_matchy-0.2.0.wasm
+├── matchy.yaml
+└── threats.mxy
+```
+
+### matchy.yaml
 
 ```yaml
-database: /etc/fluent-bit/threats.mxy
+database: threats.mxy
 
 # Optional: customize output field names
 output_field: matchy_threats
 flag_field: threat_detected
 
-# Optional: toggle extractors (all default to true)
+# Toggle extractors (all default to true)
 extract_domains: true
 extract_ipv4: true
 extract_ipv6: true
@@ -47,7 +51,7 @@ extract_ethereum: false
 extract_monero: false
 ```
 
-### 2. Configure Fluent Bit
+### fluent-bit.yaml
 
 ```yaml
 service:
@@ -63,9 +67,9 @@ pipeline:
   filters:
     - name: wasm
       match: app
-      wasm_path: /usr/lib/fluent-bit/fluent_bit_matchy.wasm
+      wasm_path: fluent_bit_matchy-0.2.0.wasm
       function_name: matchy_filter
-      accessible_paths: /etc/fluent-bit
+      accessible_paths: .
       wasm_heap_size: 256M
 
   outputs:
@@ -73,29 +77,18 @@ pipeline:
       match: "*"
 ```
 
-**Important**: 
-- `accessible_paths` must include the directory containing both `matchy.yaml` and your `.mxy` database
-- `wasm_heap_size` must be larger than your database file size (the database is loaded into memory, plus overhead for processing). A good rule of thumb: set it to ~1.5x your `.mxy` file size
+**Notes:**
+- `accessible_paths` must include the directory containing `matchy.yaml` and your `.mxy` database
+- `wasm_heap_size` should be ~1.5x your database file size (it's loaded into memory)
 
-## Example
-
-### Directory layout
-
-```
-/etc/fluent-bit/
-├── fluent-bit.yaml
-├── matchy.yaml
-└── threats.mxy
-```
-
-### Behavior
+## What it does
 
 Input log:
 ```json
 {"log": "Connection from 1.2.3.4 to malware.example.com"}
 ```
 
-If `1.2.3.4` is in your threat database, output becomes:
+If `1.2.3.4` is in your threat database:
 ```json
 {
   "log": "Connection from 1.2.3.4 to malware.example.com",
@@ -111,9 +104,11 @@ If `1.2.3.4` is in your threat database, output becomes:
 }
 ```
 
-If no threats match, the log passes through unchanged.
+No match? The log passes through unchanged.
 
-## Building Threat Databases
+## Building threat databases
+
+Use the [matchy CLI](https://github.com/matchylabs/matchy):
 
 ```bash
 matchy build threats.csv -o threats.mxy
@@ -121,13 +116,21 @@ matchy build threats.csv -o threats.mxy
 
 ## Performance
 
-The plugin ships as a portable `.wasm` file that runs on any platform via Fluent Bit's WASM interpreter.
+The plugin runs on any platform via Fluent Bit's WASM runtime.
 
-**SIMD support**: Matchy uses SIMD instructions for fast pattern matching. Whether these are used depends on your Fluent Bit build:
+Matchy uses SIMD for fast pattern matching. Whether SIMD is available depends on your Fluent Bit build:
 - Most packaged builds (Homebrew, apt, etc.) run WASM in interpreter mode without SIMD — still fast, but not optimal
-- For maximum performance, you can AOT-compile the WASM for your target CPU using `flb-wamrc` (requires building Fluent Bit with `-DFLB_WAMRC=On`)
+- For maximum performance, AOT-compile the WASM for your CPU using `flb-wamrc` (requires building Fluent Bit with `-DFLB_WAMRC=On`)
 
-For most workloads, the interpreter is plenty fast. AOT compilation is only worth pursuing for very high-throughput deployments.
+For most workloads, the interpreter is plenty fast.
+
+## Building from source
+
+```bash
+rustup target add wasm32-wasip1
+cargo build --target wasm32-wasip1 --release
+# Output: target/wasm32-wasip1/release/fluent_bit_matchy.wasm
+```
 
 ## License
 

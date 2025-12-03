@@ -12,9 +12,9 @@ pipeline:
   filters:
     - name: wasm
       match: app
-      wasm_path: /usr/lib/fluent-bit/plugins/fluent_bit_matchy.wasm
+      wasm_path: fluent_bit_matchy-0.2.0.wasm
       function_name: matchy_filter
-      accessible_paths: /etc/fluent-bit
+      accessible_paths: .
       wasm_heap_size: 256M
 
   outputs:
