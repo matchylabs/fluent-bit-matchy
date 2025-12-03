@@ -11,6 +11,9 @@
 //! ```yaml
 //! database: ./threats.mxy
 //!
+//! # Auto-reload: check for database updates every N seconds (0 = disabled, default)
+//! reload_interval_secs: 30
+//!
 //! # Output field names (optional)
 //! output_field: matchy_threats    # where match details go
 //! flag_field: threat_detected     # boolean flag added on match
@@ -44,6 +47,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::cell::RefCell;
 use std::slice;
+use std::time::SystemTime;
 
 /// Config file name (YAML)
 const CONFIG_FILE: &str = "matchy.yaml";
@@ -53,6 +57,10 @@ const CONFIG_FILE: &str = "matchy.yaml";
 struct Config {
     /// Path to the matchy database (.mxy file)
     database: String,
+
+    /// How often to check for database updates (seconds, 0 = disabled)
+    #[serde(default = "default_reload_interval")]
+    reload_interval_secs: u64,
 
     /// Field name for match results (default: "matchy_threats")  
     #[serde(default = "default_output_field")]
@@ -81,6 +89,9 @@ struct Config {
     extract_monero: bool,
 }
 
+fn default_reload_interval() -> u64 {
+    0 // Disabled by default
+}
 fn default_output_field() -> String {
     "matchy_threats".to_string()
 }
@@ -97,6 +108,10 @@ struct FilterState {
     database: Option<Database>,
     extractor: Option<Extractor>,
     initialized: bool,
+    /// Last known mtime of the database file
+    db_mtime: Option<SystemTime>,
+    /// Unix timestamp (from record) when we last checked for updates
+    last_reload_check_sec: u32,
 }
 
 impl FilterState {
@@ -106,6 +121,8 @@ impl FilterState {
             database: None,
             extractor: None,
             initialized: false,
+            db_mtime: None,
+            last_reload_check_sec: 0,
         }
     }
 
@@ -142,25 +159,79 @@ impl FilterState {
         };
 
         // Load database
-        match std::fs::read(&config.database) {
+        if self.load_database(&config.database) {
+            if config.reload_interval_secs > 0 {
+                eprintln!(
+                    "[matchy] Auto-reload enabled (checking every {}s)",
+                    config.reload_interval_secs
+                );
+            }
+            self.extractor = Some(extractor);
+            self.config = Some(config);
+        }
+    }
+
+    /// Load database from path, updating mtime tracking. Returns true on success.
+    fn load_database(&mut self, path: &str) -> bool {
+        // Get current mtime
+        let mtime = std::fs::metadata(path).and_then(|m| m.modified()).ok();
+
+        match std::fs::read(path) {
             Ok(bytes) => {
                 let size_mb = bytes.len() as f64 / (1024.0 * 1024.0);
                 match Database::from_bytes(bytes) {
                     Ok(db) => {
-                        eprintln!("[matchy] Loaded {} ({:.1} MB)", config.database, size_mb);
+                        eprintln!("[matchy] Loaded {} ({:.1} MB)", path, size_mb);
                         self.database = Some(db);
-                        self.extractor = Some(extractor);
-                        self.config = Some(config);
+                        self.db_mtime = mtime;
+                        true
                     }
                     Err(e) => {
-                        eprintln!("[matchy] ERROR: Failed to parse {}: {}", config.database, e);
+                        eprintln!("[matchy] ERROR: Failed to parse {}: {}", path, e);
+                        false
                     }
                 }
             }
             Err(e) => {
-                eprintln!("[matchy] ERROR: Cannot read {}: {}", config.database, e);
+                eprintln!("[matchy] ERROR: Cannot read {}: {}", path, e);
+                false
             }
         }
+    }
+
+    /// Check if database file has been updated and reload if needed.
+    /// Uses the record timestamp from Fluent Bit (zero syscall overhead).
+    fn maybe_reload(&mut self, record_time_sec: u32) {
+        let Some(config) = &self.config else { return };
+        if config.reload_interval_secs == 0 {
+            return; // Auto-reload disabled
+        }
+
+        // Check if enough time has elapsed since last check
+        // (uses record timestamp from Fluent Bit - no syscall needed!)
+        let interval = config.reload_interval_secs as u32;
+        if record_time_sec < self.last_reload_check_sec.saturating_add(interval) {
+            return; // Not time to check yet
+        }
+
+        // Update last check time
+        self.last_reload_check_sec = record_time_sec;
+
+        // Check file mtime (this is the only syscall, and only every N seconds)
+        let current_mtime = match std::fs::metadata(&config.database).and_then(|m| m.modified()) {
+            Ok(mtime) => mtime,
+            Err(_) => return, // Can't stat file, skip this check
+        };
+
+        // Compare with stored mtime
+        if self.db_mtime == Some(current_mtime) {
+            return; // File hasn't changed
+        }
+
+        // File changed - reload!
+        eprintln!("[matchy] Database file changed, reloading...");
+        let path = config.database.clone();
+        self.load_database(&path);
     }
 }
 
@@ -205,7 +276,7 @@ fn pass_through(record_slice: &[u8]) -> *const u8 {
 pub extern "C" fn matchy_filter(
     _tag: *const u8,
     _tag_len: u32,
-    _time_sec: u32,
+    time_sec: u32,
     _time_nsec: u32,
     record: *const u8,
     record_len: u32,
@@ -218,6 +289,7 @@ pub extern "C" fn matchy_filter(
     STATE.with(|state| {
         let mut state = state.borrow_mut();
         state.initialize();
+        state.maybe_reload(time_sec);
 
         let (db, config, extractor) = match (&state.database, &state.config, &state.extractor) {
             (Some(db), Some(cfg), Some(ext)) => (db, cfg, ext),

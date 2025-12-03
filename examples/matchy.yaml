@@ -4,6 +4,10 @@
 # Path to your Matchy database (.mxy)
 database: threats.mxy
 
+# Auto-reload: check for database updates every N seconds (0 = disabled)
+# When the database file is updated, the plugin automatically reloads it
+reload_interval_secs: 30  # recommended if your threat feed updates frequently
+
 # Output field names (optional)
 output_field: matchy_threats     # array of match details
 flag_field: threat_detected      # boolean, true when threats found

@@ -36,6 +36,9 @@ Copy the files to your Fluent Bit directory:
 ```yaml
 database: threats.mxy
 
+# Auto-reload: check for updates every N seconds (0 = disabled)
+reload_interval_secs: 30  # recommended if your threat feed updates frequently
+
 # Optional: customize output field names
 output_field: matchy_threats
 flag_field: threat_detected
@@ -113,6 +116,17 @@ Use the [matchy CLI](https://github.com/matchylabs/matchy):
 ```bash
 matchy build threats.csv -o threats.mxy
 ```
+
+## Auto-reload
+
+The plugin can automatically detect when your `.mxy` database file is updated and reload it — no restart required. This is disabled by default.
+
+```yaml
+# Enable auto-reload (check every 30 seconds)
+reload_interval_secs: 30
+```
+
+Useful for threat intelligence feeds that update frequently. When you update your database file, the plugin picks up the changes within the configured interval.
 
 ## Performance
 
