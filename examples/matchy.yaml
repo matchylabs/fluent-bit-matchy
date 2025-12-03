@@ -1,0 +1,19 @@
+# Matchy Filter Configuration
+# Place this file in the same directory as fluent-bit.yaml
+
+# Path to your Matchy database (.mxy)
+database: /etc/fluent-bit/threats.mxy
+
+# Output field names (optional)
+output_field: matchy_threats     # array of match details
+flag_field: threat_detected      # boolean, true when threats found
+
+# Extractor toggles (default: true)
+extract_domains: true
+extract_ipv4: true
+extract_ipv6: true
+extract_hashes: true
+extract_emails: false
+extract_bitcoin: false
+extract_ethereum: false
+extract_monero: false

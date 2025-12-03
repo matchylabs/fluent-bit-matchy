@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+
+      - name: Build WASM
+        run: cargo build --target wasm32-wasip1 --release
+
+      - name: Upload WASM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fluent_bit_matchy.wasm
+          path: target/wasm32-wasip1/release/fluent_bit_matchy.wasm
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download WASM artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: fluent_bit_matchy.wasm
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Create release tarball
+        run: |
+          mkdir -p fluent-bit-matchy-${{ steps.version.outputs.VERSION }}
+          cp fluent_bit_matchy.wasm fluent-bit-matchy-${{ steps.version.outputs.VERSION }}/
+          cp README.md fluent-bit-matchy-${{ steps.version.outputs.VERSION }}/
+          cp examples/matchy.yaml fluent-bit-matchy-${{ steps.version.outputs.VERSION }}/matchy.yaml.example
+          cp examples/fluent-bit.yaml fluent-bit-matchy-${{ steps.version.outputs.VERSION }}/fluent-bit.yaml.example
+          tar -czvf fluent-bit-matchy-${{ steps.version.outputs.VERSION }}.tar.gz fluent-bit-matchy-${{ steps.version.outputs.VERSION }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            fluent-bit-matchy-${{ steps.version.outputs.VERSION }}.tar.gz
+            fluent_bit_matchy.wasm
+          generate_release_notes: true

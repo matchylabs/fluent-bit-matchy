@@ -1,0 +1,28 @@
+[package]
+name = "fluent-bit-matchy"
+version = "0.1.0"
+edition = "2021"
+authors = ["MatchyLabs Contributors"]
+license = "Apache-2.0"
+description = "Fluent Bit WASM filter plugin for matchy threat intelligence matching"
+repository = "https://github.com/matchylabs/fluent-bit-matchy"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+matchy = { git = "https://github.com/matchylabs/matchy", branch = "main", default-features = false }
+matchy-extractor = { git = "https://github.com/matchylabs/matchy", branch = "main" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+
+[profile.release]
+opt-level = "s"        # Optimize for size (important for WASM)
+lto = true
+codegen-units = 1
+strip = true
+
+[profile.dev]
+opt-level = 0
+debug = true
