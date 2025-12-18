@@ -179,7 +179,11 @@ impl FilterState {
         match std::fs::read(path) {
             Ok(bytes) => {
                 let size_mb = bytes.len() as f64 / (1024.0 * 1024.0);
-                match Database::from_bytes(bytes) {
+                // Use builder API with LRU caching for repeated queries (common in log scanning)
+                match Database::from_bytes_builder(bytes)
+                    .cache_capacity(10_000)
+                    .open()
+                {
                     Ok(db) => {
                         eprintln!("[matchy] Loaded {} ({:.1} MB)", path, size_mb);
                         self.database = Some(db);
@@ -304,11 +308,10 @@ pub extern "C" fn matchy_filter(
             return pass_through(record_slice);
         }
 
-        // Query database for each extracted IoC
+        // Query database for each extracted IoC using efficient typed lookup
         let mut matches: Vec<Value> = Vec::new();
         for m in extracted {
-            let indicator = m.item.as_value();
-            if let Ok(Some(result)) = db.lookup(&indicator) {
+            if let Ok(Some(result)) = db.lookup_extracted(&m, record_slice) {
                 let data = match &result {
                     QueryResult::Ip { data, prefix_len } => json!({
                         "data": format!("{:?}", data),
@@ -321,7 +324,7 @@ pub extern "C" fn matchy_filter(
                     QueryResult::NotFound => continue,
                 };
                 matches.push(json!({
-                    "indicator": indicator,
+                    "indicator": m.item.as_value(),
                     "type": m.item.type_name(),
                     "span": [m.span.0, m.span.1],
                     "result": data,
